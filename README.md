@@ -1,16 +1,25 @@
 # RTT-SearchAgent
 
-RTT-SearchAgent is an Android and ROS 2 system for locating IEEE 802.11mc
-Fine Timing Measurement (FTM) responders from one or more moving search
-agents. Each One Search Agent (OSA), normally a phone carried by a drone,
-combines Wi-Fi RTT ranges with GNSS poses, estimates responder positions,
-publishes live ROS 2 telemetry, and records field logs. Multiple OSAs can be
-fused online by the central Networked-OSA node.
+[![License: MIT](https://img.shields.io/badge/license-MIT-146B3A.svg)](LICENSE)
+[![Android](https://img.shields.io/badge/Android-11%2B-3DDC84.svg)](app/)
+[![ROS 2](https://img.shields.io/badge/ROS%C2%A02-rclpy-22314E.svg)](runtime/online/)
 
-This repository intentionally contains only the maintained application and
-runtime source, the ROS Android build artifacts required by the APK, and two
-documentation files. Experimental datasets, rosbags, plots, offline-analysis
-code, and manuscripts are not part of this repository.
+**Locate IEEE 802.11mc Wi-Fi FTM responders from one or more moving search
+agents.** RTT-SearchAgent combines an Android acquisition and localization app,
+external USB GNSS/NTRIP support, ROS 2 telemetry, central multi-OSA fusion, and
+field logging in one reproducible repository.
+
+Each One Search Agent (OSA), usually a phone carried by a UAV, associates RTT
+ranges with its own GNSS poses and can estimate responder positions locally.
+The ground station can combine observations from several OSA namespaces.
+
+> [!IMPORTANT]
+> There is **one Android application**. The two Python files under
+> `runtime/online/` are central fusion entry points: the field-evaluated
+> `multi_osa_fusion.py` baseline and the extended `networked-OSA.py` runtime.
+
+Field datasets, rosbags, plots, offline-analysis code, and manuscripts are kept
+outside this source repository.
 
 > [!WARNING]
 > This is research software for controlled experiments. It is not a flight
@@ -21,7 +30,8 @@ code, and manuscripts are not part of this repository.
 | Component | Purpose |
 |---|---|
 | `app/` | Android 11+ Wi-Fi RTT application with GNSS, NTRIP, local estimation, ROS 2, and JSONL logging |
-| `runtime/online/networked-OSA.py` | The only supported central online fusion algorithm |
+| `runtime/online/multi_osa_fusion.py` | Central implementation used for the reported field experiment and source replay |
+| `runtime/online/networked-OSA.py` | Extended central runtime with per-OSA biases, selectable pose sources, and separate 2D/3D stability |
 | `tools/adb_remote.py` | Mission Control GUI for ADB setup, ROS 2 control, NTRIP, ground truth, maps, and log collection |
 | `tools/record_dual_dds_rosbag.sh` | Optional synchronized Fast DDS and Cyclone DDS rosbag recorder |
 | `docs/TECHNICAL.md` | Architecture, interfaces, estimator behavior, parameters, security, and troubleshooting |
@@ -31,13 +41,44 @@ The high-level data path is:
 ```mermaid
 flowchart LR
     AP[FTM responder] -->|Wi-Fi RTT| PHONE[Android OSA]
-    GNSS[Phone GNSS or USB F9P] -->|WGS84 pose| PHONE
+    GNSS[External USB GNSS / F9P] -->|WGS84 pose| PHONE
     NTRIP[NTRIP caster] -->|RTCM3 via phone| GNSS
     PHONE -->|local estimate and JSONL| LOCAL[Phone storage]
     PHONE -->|RTT, pose, local estimate| DDS[ROS 2 / Fast DDS]
-    DDS --> FUSION[networked-OSA.py]
-    FUSION -->|fused estimate and status| MC[Mission Control / ROS consumers]
+    DDS --> BASE[Field baseline<br/>multi_osa_fusion.py]
+    DDS --> EXT[Extended runtime<br/>networked-OSA.py]
+    BASE -->|estimate, state, status| MC[Mission Control / ROS consumers]
+    EXT -->|estimate, state, status| MC
 ```
+
+## Choose The Central Node
+
+Both nodes consume the same Android RTT and phone-pose topics, but their state
+and output contracts differ. Choose deliberately; do not switch between them
+inside one analysis.
+
+| Use case | Entry point | Key behavior |
+|---|---|---|
+| Reproduce the reported field pipeline | `runtime/online/multi_osa_fusion.py` | One shared residual range bias per responder, fixed AGL-based vertical prior, eight-field estimate |
+| Develop new multi-OSA deployments | `runtime/online/networked-OSA.py` | One residual bias per OSA, configurable phone/drone pose source, separate 2D/3D stability, twelve-field estimate |
+
+Mission Control currently launches the extended entry point. The field baseline
+is started manually so that reproductions make that choice explicit.
+
+```bash
+source /opt/ros/<distro>/setup.bash
+export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+export ROS_LOCALHOST_ONLY=0
+
+# Field-evaluated baseline
+python3 runtime/online/multi_osa_fusion.py --log-dir ./fusion_logs/baseline
+
+# Extended runtime
+python3 runtime/online/networked-OSA.py --log-dir ./fusion_logs/networked
+```
+
+See [the technical reference](docs/TECHNICAL.md#7-central-online-fusion) before
+consuming either array layout.
 
 ## Supported Environment
 
@@ -59,10 +100,12 @@ adb -s <serial> shell pm list features | grep android.hardware.wifi.rtt
 adb -s <serial> shell getprop ro.product.cpu.abi
 ```
 
-The application prefers fresh external USB GNSS fixes while the receiver is
-active and returns to Android fused location when external GNSS stops. An F9P
-with a valid RTK solution is strongly recommended for quantitative 3D work.
-Do not mix altitude datums within one run.
+The current application uses the external USB GNSS path and has internal
+Android-location fallback disabled. If external fixes stop, raw RTT can still
+be logged, but pose-dependent local estimation cannot continue once no valid
+association is available. An F9P with a valid RTK solution is strongly
+recommended for quantitative 3D work. Do not mix altitude datums within one
+run.
 
 ### Ground station
 
@@ -193,15 +236,15 @@ For two or more OSAs:
 
 - assign stable IDs such as `osa1`, `osa2`, and `osa3`;
 - use `cooperative_mode=fused_offboard`;
-- use the same ranging period and distribute phase offsets across that period;
+- use the same ranging period and record each configured phase;
 - restart each Android app after changing `agent_id`, because ROS topic names
   are created at startup.
 
-For two OSAs at a 240 ms period, phases 0 ms and 120 ms are a practical starting
-point. Avoid flat or stationary trajectories: the default Android `auto`
-altitude mode requires at least 3 m of observed vertical spread before its 3D
-bootstrap, while horizontal motion is needed for useful multilateration
-geometry.
+The phase is applied only to the first scheduled burst and can be hidden by the
+minimum ranging gap. It is not a shared-clock TDMA guarantee. Avoid flat or
+stationary trajectories: the default Android `auto` altitude mode requires at
+least 3 m of observed vertical spread before its 3D bootstrap, while horizontal
+motion is needed for useful multilateration geometry.
 
 ### 3. Configure GNSS and optional NTRIP
 
@@ -233,11 +276,12 @@ estimator.
 
 ### 5. Start online fusion
 
-For a cooperative run, start **Multi-OSA** in Mission Control. It launches the
-only maintained central node, `runtime/online/networked-OSA.py`, and stores
-fusion JSONL logs under the user data root.
+For a new cooperative run, **Multi-OSA** in Mission Control launches
+`runtime/online/networked-OSA.py` and stores fusion JSONL logs under the user
+data root. For reproduction of the reported field estimator, launch
+`runtime/online/multi_osa_fusion.py` manually as shown above.
 
-The equivalent manual command is:
+The extended-node equivalent command is:
 
 ```bash
 source /opt/ros/<distro>/setup.bash
@@ -320,7 +364,7 @@ For each Android namespace `<agent>`, the primary interfaces are:
 | `/<agent>/ftm/start_experiment` | `std_srvs/Trigger` | Android serves |
 | `/<agent>/ftm/stop_experiment` | `std_srvs/Trigger` | Android serves |
 
-Networked-OSA publishes:
+The extended Networked-OSA node publishes:
 
 - `/fusion/anchor/<ap>/estimate` for stable 2D or 3D fused estimates;
 - `/fusion/anchor/<ap>/state` for the current estimator state;
@@ -338,9 +382,10 @@ The main files are `experiment.jsonl`, `gps.jsonl`, `rtt.jsonl`, `mlat.jsonl`,
 `mlat_state.jsonl`, `app.jsonl`, and `status.json`. Mission Control pulls them
 to timestamped, per-device folders under `~/ftm_logs` by default.
 
-Networked-OSA writes `fusion_state.jsonl` and `fusion_mlat.jsonl` only when
-`--log-dir` is set. These files can contain precise trajectories, network IDs,
-and responder identifiers; store them as sensitive field data.
+Both central nodes write `fusion_state.jsonl` and `fusion_mlat.jsonl` only when
+`--log-dir` is set. The schemas reflect the selected node. These files can
+contain precise trajectories, network IDs, and responder identifiers; store
+them as sensitive field data.
 
 When DDS discovery differs between Fast DDS and Cyclone DDS, the optional
 recorder starts one process per RMW and groups both bags into one session:
@@ -364,12 +409,17 @@ export ANDROID_HOME="$HOME/Android/Sdk"
 ./gradlew testDebugUnitTest
 ./gradlew assembleDebug
 
-python3 -m py_compile tools/adb_remote.py runtime/online/networked-OSA.py
+python3 -m py_compile \
+  tools/adb_remote.py \
+  runtime/online/multi_osa_fusion.py \
+  runtime/online/networked-OSA.py
 bash -n tools/record_dual_dds_rosbag.sh
 
 source /opt/ros/<distro>/setup.bash
 RMW_IMPLEMENTATION=rmw_fastrtps_cpp \
   python3 runtime/online/networked-OSA.py --help
+RMW_IMPLEMENTATION=rmw_fastrtps_cpp \
+  python3 runtime/online/multi_osa_fusion.py --help
 ```
 
 APK compilation cannot detect missing JNI symbols. Changes to the bundled ROS
@@ -398,6 +448,7 @@ Java/JNI runtime must also be tested on a physical ARM64 phone.
 | App installs but no RTT is available | Verify `android.hardware.wifi.rtt`, location/Wi-Fi permissions, and an FTM responder |
 | Mission Control finds no OSAs | Match `ROS_DOMAIN_ID`, source ROS 2, use Fast DDS, disable `ROS_LOCALHOST_ONLY`, and check the VPN/firewall |
 | Fusion says it is waiting for ENU origin | Supply a pose with reported accuracy at or below 2 m |
+| A consumer misreads fused arrays | Confirm which central entry point produced the topic; their estimate schemas differ |
 | Horizontal estimates appear but altitude does not converge | Add vertical trajectory diversity and keep altitude datums consistent |
 | Map tab is unavailable | Activate `.venv` and install `requirements.txt`; Tk itself must come from the OS |
 | NTRIP connects but RTCM bytes stay at zero | Check host, port, mountpoint, credentials, Internet access, and caster policy |
@@ -408,4 +459,6 @@ More detailed diagnostics and all message layouts are in
 ## License And Citation
 
 The software is distributed under the [MIT License](LICENSE). Citation metadata
-is provided in [CITATION.cff](CITATION.cff).
+is provided in [CITATION.cff](CITATION.cff). For reproducible studies, report
+the Git commit, selected central entry point, CLI arguments, Android version,
+APK hash, ROS 2/RMW environment, and effective GNSS configuration.

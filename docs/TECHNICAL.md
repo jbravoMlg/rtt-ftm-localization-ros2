@@ -1,20 +1,20 @@
 # RTT-SearchAgent Technical Reference
 
 This document is the maintained technical reference for the Android OSA,
-Mission Control, and the online Networked-OSA fusion node. The root
+Mission Control, and both central fusion entry points. The root
 [README](../README.md) is the operational quick start.
 
-The repository does not include historical datasets, campaign-specific code,
-offline-analysis pipelines, plots, or manuscripts. Keep field data outside the
-source checkout.
+The repository includes the field-evaluated central implementation, but not
+historical datasets, offline-analysis pipelines, plots, or manuscripts. Keep
+field data outside the source checkout.
 
 ## 1. System Architecture
 
 An OSA is one Android phone and its carrier, usually a drone. The phone ranges
 to IEEE 802.11mc responders, time-associates each range with a GNSS pose, and
 runs a local per-responder estimator. ROS 2 makes raw observations and local
-estimates available to the ground station. Networked-OSA combines observations
-from independent namespaces into one estimate per responder.
+estimates available to the ground station. A selected central node combines
+observations from independent namespaces into one estimate per responder.
 
 ```mermaid
 flowchart TB
@@ -36,8 +36,10 @@ flowchart TB
 
     OSA1 -->|ftm_rtt, phone/location, local estimate| DDS[ROS 2 DDS graph]
     OSA2 -->|ftm_rtt, phone/location, local estimate| DDS
+    DDS --> BASE[multi_osa_fusion.py]
     DDS --> NET[networked-OSA.py]
-    NET -->|fusion estimate, state, status| UI[Mission Control and ROS consumers]
+    BASE -->|field-baseline output| UI[Mission Control and ROS consumers]
+    NET -->|extended output| UI
 ```
 
 ### Ownership boundaries
@@ -48,7 +50,8 @@ flowchart TB
 | `app/src/test/` | Android/JVM unit tests |
 | `app/libs/` | Local ros2-java and ROS message Java artifacts required by Gradle |
 | `app/src/main/jniLibs/arm64-v8a/` | Matching ROS 2 and Fast DDS Android native runtime |
-| `runtime/online/networked-OSA.py` | Central online multilateration and publication |
+| `runtime/online/multi_osa_fusion.py` | Field-evaluated central multilateration and publication |
+| `runtime/online/networked-OSA.py` | Extended central runtime for new deployments |
 | `tools/adb_remote.py` | Operator GUI and process control |
 | `tools/record_dual_dds_rosbag.sh` | Optional dual-RMW capture helper |
 
@@ -155,10 +158,11 @@ nearby or interpolated pose. The default synchronization window is 1200 ms and
 can be changed at runtime from 10 to 30000 ms. Android rejects poses whose
 reported accuracy is greater than 15 m for local estimation.
 
-When a USB receiver is active and has delivered a fresh fix within 5 seconds,
-its fix takes precedence. If the external receiver stops, Android fused
-location resumes. A low-accuracy fallback is useful operationally but can make
-the 3D solution unsuitable for quantitative evaluation.
+The current application accepts external USB fixes and has its internal Android
+location fallback disabled. If the receiver stops, raw RTT logging may continue,
+but pose-dependent local estimation waits for external fixes. Treat fallback
+code paths in the source as inactive unless the configuration is deliberately
+changed and revalidated.
 
 ### External u-blox GNSS and NTRIP
 
@@ -399,12 +403,20 @@ required and the default port is 2101. Prefer Mission Control for this action so
 credentials do not enter shell history. Never place real values in scripts,
 documentation, issue reports, or Git.
 
-## 7. Networked-OSA Online Fusion
+## 7. Central Online Fusion
 
-`runtime/online/networked-OSA.py` is the only supported central fusion
-implementation.
+There is one Android application and two central Python entry points:
 
-### Discovery and inputs
+| Entry point | Intended use | Estimate payload length |
+|---|---|---:|
+| `runtime/online/multi_osa_fusion.py` | Reproduce the field-evaluated shared-bias estimator | 8 |
+| `runtime/online/networked-OSA.py` | Extended deployments with per-OSA biases and separate 2D/3D stability | 12 |
+
+They subscribe to the same core Android topics, but their estimator states,
+defaults, output semantics, and JSON logs are not interchangeable. Mission
+Control launches `networked-OSA.py`; start the field baseline manually.
+
+### Extended Networked-OSA discovery and inputs
 
 At 0.2 Hz by default, the node scans the ROS graph and dynamically subscribes
 to matching namespaces:
@@ -425,7 +437,7 @@ The ENU origin has a stricter fixed requirement: its first pose must report
 adapter. If the node repeatedly reports that it is waiting for RTK quality, no
 anchor processing can begin.
 
-### Estimator behavior
+### Extended estimator behavior
 
 For every BSSID, the node:
 
@@ -445,7 +457,7 @@ The per-OSA bias model prevents one phone's systematic range offset from being
 forced onto every other OSA. `--range-bias` is a known global correction applied
 before those residual bias states are estimated.
 
-### Publications
+### Extended publications
 
 | Topic | Type | Payload |
 |---|---|---|
@@ -456,6 +468,18 @@ before those residual bias states are estimated.
 The status JSON includes discovered OSA names, responder counts, contributing
 OSAs, accepted/rejected counts, resets, covariance indicators, residual RMSE,
 ENU state, and estimated bias per OSA.
+
+### Field-baseline publications
+
+`multi_osa_fusion.py` uses one shared residual bias per responder and publishes:
+
+| Topic | Payload |
+|---|---|
+| `/fusion/anchor/<ap>/estimate` | `[lat, lon, alt, cov_xx, cov_yy, cov_xy, n_accepted, reserved]` |
+| `/fusion/anchor/<ap>/state` | `[lat, lon, alt, sigma_h, sigma_z, n_accepted, converged, reserved]` |
+
+Run `python3 runtime/online/multi_osa_fusion.py --help` for its authoritative
+CLI. Do not infer its output contract from the extended-node table.
 
 ### Command-line options
 
@@ -645,7 +669,8 @@ repository with access controls and an explicit retention policy. The
 ### Source checks
 
 ```bash
-python3 -m py_compile tools/adb_remote.py runtime/online/networked-OSA.py
+python3 -m py_compile tools/adb_remote.py \
+  runtime/online/multi_osa_fusion.py runtime/online/networked-OSA.py
 bash -n tools/record_dual_dds_rosbag.sh
 git diff --check
 ```
@@ -660,8 +685,8 @@ export ANDROID_HOME="$HOME/Android/Sdk"
 adb -s <serial> install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-On-device, verify USB reconnect, internal/external GNSS handoff, NTRIP byte
-flow, continuous RTT, local estimate publication, clean stop, and log pull.
+On-device, verify USB reconnect, external-GNSS-only behavior, NTRIP byte flow,
+continuous RTT, local estimate publication, clean stop, and log pull.
 
 ### ROS 2 checks
 
@@ -671,6 +696,7 @@ export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 export ROS_LOCALHOST_ONLY=0
 
 python3 runtime/online/networked-OSA.py --help
+python3 runtime/online/multi_osa_fusion.py --help
 ros2 topic list -t
 ros2 topic echo /fusion/status
 ```
@@ -705,7 +731,7 @@ and pose messages, that the origin is established, and that `n_drones`,
 | Problem | Resolution |
 |---|---|
 | Mission Control discovers no OSAs | Match domain, source ROS, select Fast DDS, set `ROS_LOCALHOST_ONLY=0`, and check multicast/VPN/firewall behavior |
-| RTT topic exists but fusion accepts nothing | Verify matching pose timestamps, positive distance/sigma, and the `accepted` field |
+| RTT topic exists but fusion accepts nothing | Verify matching pose timestamps, positive distance/sigma, pose accuracy, and gate diagnostics |
 | Fusion waits for ENU origin | Supply one pose with `0 < accuracy <= 2 m` |
 | Bootstrap never occurs | Check distinct OSA count, at least six samples, 15 m horizontal spread, pose availability, and robust-gate rejection |
 | Only 2D becomes stable | Improve vertical geometry, inspect altitude datums, or deliberately require 3D with `--no-publish-2d-only` |
@@ -723,8 +749,10 @@ and pose messages, that the origin is established, and that `n_drones`,
 
 ## 13. Extension Rules
 
-- Keep `runtime/online/networked-OSA.py` as the single supported fusion
-  entrypoint; update Mission Control and both documents when its CLI changes.
+- Preserve `runtime/online/multi_osa_fusion.py` as the field-evaluated baseline;
+  document intentional changes instead of silently replacing its behavior.
+- Update Mission Control and both documents when the extended runtime CLI or
+  either topic contract changes.
 - Add ROS message packages as complete Java and native type-support sets.
 - Preserve namespace and array-layout compatibility, or version the topic
   contract explicitly.
