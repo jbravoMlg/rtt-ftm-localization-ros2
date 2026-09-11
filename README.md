@@ -1,6 +1,6 @@
 # RTT-SearchAgent
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-146B3A.svg)](LICENSE)
+[![License: Proprietary](https://img.shields.io/badge/license-Proprietary-146B3A.svg)](LICENSE)
 [![Android](https://img.shields.io/badge/Android-11%2B-3DDC84.svg)](app/)
 [![ROS 2](https://img.shields.io/badge/ROS%C2%A02-rclpy-22314E.svg)](runtime/online/)
 
@@ -458,7 +458,8 @@ More detailed diagnostics and all message layouts are in
 
 ## License And Citation
 
-The software is distributed under the [MIT License](LICENSE). Citation metadata
-is provided in [CITATION.cff](CITATION.cff). For reproducible studies, report
-the Git commit, selected central entry point, CLI arguments, Android version,
-APK hash, ROS 2/RMW environment, and effective GNSS configuration.
+This repository is proprietary. See [LICENSE](LICENSE) for the usage terms.
+Citation metadata is provided in [CITATION.cff](CITATION.cff). For reproducible
+studies, report the Git commit, selected central entry point, CLI arguments,
+Android version, APK hash, ROS 2/RMW environment, and effective GNSS
+configuration.

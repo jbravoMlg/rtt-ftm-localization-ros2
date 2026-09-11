@@ -6,5 +6,5 @@ authors:
   - family-names: "Bravo-Arrabal"
     given-names: "Juan"
 year: 2025
-license: MIT
+license: Proprietary
 repository-code: "https://github.com/jbravoMlg/rtt-ftm-localization-ros2"
