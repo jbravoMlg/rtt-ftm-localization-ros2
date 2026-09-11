@@ -1,0 +1,29 @@
+*.iml
+/.idea/
+.gradle/
+/local.properties
+.DS_Store
+/build/
+/captures/
+.externalNativeBuild
+.cxx
+local.properties
+
+# Python generated files
+.venv*/
+__pycache__/
+*.py[cod]
+
+# Field data and generated results live outside the source checkout.
+/analysis/
+/data/
+/desktop/
+/experiments/
+/logs/
+/outputs/
+/paper/
+/rosbags/
+/rosbag2_*/
+*.db3
+*.mcap
+*.jsonl

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Native u-blox USB devices. -->
+    <usb-device vendor-id="5446" />
+    <!-- FTDI serial bridges commonly used by GNSS dev kits. -->
+    <usb-device vendor-id="1027" />
+    <!-- Silicon Labs CP210x serial bridges. -->
+    <usb-device vendor-id="4292" />
+    <!-- WCH / QinHeng CH34x serial bridges. -->
+    <usb-device vendor-id="6790" />
+    <!-- Prolific serial bridges. -->
+    <usb-device vendor-id="1659" />
+</resources>

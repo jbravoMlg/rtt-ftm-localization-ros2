@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use this software in your research, please cite it."
+type: software
+title: "RTT-SearchAgent — Drone-based AP Localization with WiFi FTM (Android)"
+authors:
+  - family-names: "Bravo-Arrabal"
+    given-names: "Juan"
+year: 2025
+license: MIT
+repository-code: "https://github.com/jbravoMlg/rtt-ftm-localization-ros2"
