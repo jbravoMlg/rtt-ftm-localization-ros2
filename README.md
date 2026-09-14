@@ -1,13 +1,20 @@
+<div align="center">
+
+<img src="RTT-search-agent-app.png" alt="RTT-SearchAgent app icon" width="160" />
+
 # RTT-SearchAgent
+
+**Locate IEEE 802.11mc Wi-Fi FTM responders from one or more moving search agents.**
 
 [![License: Proprietary](https://img.shields.io/badge/license-Proprietary-146B3A.svg)](LICENSE)
 [![Android](https://img.shields.io/badge/Android-11%2B-3DDC84.svg)](app/)
 [![ROS 2](https://img.shields.io/badge/ROS%C2%A02-rclpy-22314E.svg)](runtime/online/)
 
-**Locate IEEE 802.11mc Wi-Fi FTM responders from one or more moving search
-agents.** RTT-SearchAgent combines an Android acquisition and localization app,
-external USB GNSS/NTRIP support, ROS 2 telemetry, central multi-OSA fusion, and
-field logging in one reproducible repository.
+</div>
+
+RTT-SearchAgent combines an Android acquisition and localization app, external
+USB GNSS/NTRIP support, ROS 2 telemetry, central multi-OSA fusion, and field
+logging in one reproducible repository.
 
 Each One Search Agent (OSA), usually a phone carried by a UAV, associates RTT
 ranges with its own GNSS poses and can estimate responder positions locally.
@@ -24,6 +31,22 @@ outside this source repository.
 > [!WARNING]
 > This is research software for controlled experiments. It is not a flight
 > controller, navigation aid, or emergency-response safety system.
+
+## Contents
+
+- [What Is Included](#what-is-included)
+- [Choose The Central Node](#choose-the-central-node)
+- [Supported Environment](#supported-environment)
+- [Clone, Build, And Install](#clone-build-and-install)
+- [Ground-Station Setup](#ground-station-setup)
+- [Field Workflow](#field-workflow)
+- [Manual ADB Control](#manual-adb-control)
+- [ROS 2 Overview](#ros-2-overview)
+- [Logs And Rosbags](#logs-and-rosbags)
+- [Validation](#validation)
+- [Security And Data Policy](#security-and-data-policy)
+- [Troubleshooting](#troubleshooting)
+- [License And Citation](#license-and-citation)
 
 ## What Is Included
 
